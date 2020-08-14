@@ -1,0 +1,268 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="renderer" content="webkit">
+    <meta http-equiv="Cache-Control" content="no-siteapp" />
+    <title>Customer</title>
+    <style>
+        ul {
+            margin: 0px;
+            padding: 0px;
+        }
+
+        li {
+            list-style: none;
+            clear: both;
+        }
+
+            li > span {
+                margin: 5px 0px;
+                padding: 5px;
+                border: solid 1px #b8c0c7;
+                border-radius: 10px;
+                word-break: break-all;
+                word-wrap: break-word;
+            }
+
+            li > img {
+                border: solid 1px #b8c0c7;
+            }
+
+        .content {
+            width: 500px;
+            height: 500px;
+            padding: 10px;
+            border: solid 1px #b8c0c7;
+            overflow: auto
+        }
+
+        .left {
+            margin-right: 100px;
+            float: left;
+        }
+
+        .right {
+            margin-left: 100px;
+            float: right;
+        }
+
+        .notice {
+            border: 0;
+            font-size: 10px;
+            width: 100%;
+            text-align: center;
+            display: block;
+            color: #f55404;
+        }
+
+        .more {
+            font-size: 10px;
+            width: 100%;
+            text-align: center;
+            display: none;
+        }
+    </style>
+
+    <script src="js/signalr.js"></script>
+    <script src="js/jquery.min-1.8.2.js"></script>
+    <script type="text/javascript">
+        var uid = localStorage.getItem("uid");
+        var hubConnection, obj = {}, lockReconnect = false;
+
+        Connect();
+
+        //连接
+        function Connect() {
+            try {
+                var transportType = signalR.TransportType.WebSockets;
+//              var hubUrl = 'http://192.168.1.21:3030/chathub';
+                var hubUrl = 'http://192.168.5.42:28300/chathub';
+//              var hubUrl = 'http://192.168.5.42:28000/onlinechatapi/chathub';
+                var httpConnection = new signalR.HttpConnection(hubUrl, { transport: transportType });
+                hubConnection = new signalR.HubConnection(httpConnection);
+                hubConnection.on('ReceiveMessage', data => {
+                    heartCheck.reset().start();
+                    console.log(new Date() + "  receive 接收  " + data);
+                    data = JSON.parse(data);
+                    if (data) {
+                        var type = data.action;
+                        switch (type.toLowerCase()) {
+                            case "conn":
+                                console.log(new Date() + "    " + "建立连接");
+                                lockReconnect = false;
+                                obj.action = "cusconn";
+                                obj.usercode = uid;
+                                obj.channel = 1;
+                                Send();
+                                break;
+                            case "disconn":
+                                console.log(new Date() + "    " + "连接关闭");
+                                ReConnect();
+                                break;
+                            case "cusconn":
+                                $(".content").find("li").remove();
+                                if (data.state) {
+                                    localStorage.setItem("uid", data.usercode);
+                                    uid = data.usercode;
+                                }
+                                else {
+                                	console.log("notice:  "+JSON.stringify(data))
+                                    append("notice", data.message);
+                                }
+                                break;
+                            case "cussend":
+                                if (data.state) {
+                                    append("right", data.message);
+                                    document.getElementById("msg").value = "";
+                                    console.log('回话id :'+ sessionid)
+                                }
+                                else {
+                                    append("notice", data.msg);
+                                }
+                                break
+                            case "cusreceive":
+                                append("left", data.message)
+                                console.log('接受option：'+data.options)
+                                break; //收到消息
+                            case "loglist":
+                                var list = data.data.rows;
+                                $(list).each(function (i, n) {
+                                    var classname = "left";
+                                    if (n.F_FromUser == uid) {
+                                        classname = "right";
+                                    }
+
+                                    insert(classname, n.F_Message, $(".hidnum").val());
+                                })
+                                if (!data.data.isfirst) {
+                                    $(".more").css("display", "block");
+                                    $(".hidnum").val(data.data.num);
+                                }
+                                else {
+                                    $(".more").css("display", "none");
+                                }
+                                break;//聊天记录
+                        }
+                    }
+                });
+                hubConnection.onclose(data => {
+                    console.log(new Date() + "  连接关闭  " + data);
+                    ReConnect();
+                });
+
+                hubConnection.start().catch(err => {
+                    console.log(new Date() + "  连接异常  " + err);
+                    ReConnect();
+                });
+            }
+            catch (e) {
+                ReConnect();
+            }
+        }
+
+        //重连
+        function ReConnect() {
+            if (!lockReconnect) {
+                lockReconnect = true;
+                //没连接上会一直重连，设置延迟避免请求过多
+                setTimeout(function () {
+                    console.log(new Date() + "    " + "重连中……");
+                    lockReconnect = false;
+                    Connect();
+                }, 2000);
+            }
+        }
+        //发送
+        function Send() {
+            if (hubConnection.connection.connectionState == 1) {
+                console.log(new Date() + "  send  " + JSON.stringify(obj));
+                hubConnection.invoke('ReceiveMessage', JSON.stringify(obj));
+            }
+            else {
+                ReConnect();
+            }
+        }
+        function getmore() {
+            obj.action = "loglist";
+            obj.code = localStorage.getItem("uid");
+            obj.msg = $(".hidnum").val();
+            Send();
+        }
+        function sendinfo() {
+            var msg = document.getElementById("msg").value;
+            if (msg) {
+                obj.action = "cussend";
+                obj.message = msg;
+                Send();
+                $(".error").text("");
+            }
+            else {
+                $(".error").text("请输入内容");
+            }
+        }
+        function append(cname, msg) {
+            var html = '<li><span class="' + cname + '">' + msg + '</span></li>';
+            $(html).appendTo($(".content")[0]);
+
+            $(".content").scrollTop($(".content")[0].scrollHeight);
+        }
+        function insert(cname, msg, nodown) {
+            var html = '<li><span class="' + cname + '">' + msg + '</span></li>';
+            var list = $(".content").find("li");
+            if (list.length) {
+                $(html).insertBefore(list[0]);
+            }
+            else {
+                $(html).appendTo($(".content")[0]);
+            }
+            if (!nodown) {
+                $(".content").scrollTop($(".content")[0].scrollHeight);
+            }
+        }
+
+        //心跳检测
+        var heartCheck = {
+            timeout: 25000, //25秒
+            timeoutObj: null,
+            serverTimeoutObj: null,
+            reset: function () {
+                clearTimeout(this.timeoutObj);
+                clearTimeout(this.serverTimeoutObj);
+                return this;
+            },
+            start: function () {
+                var self = this;
+                this.timeoutObj = setTimeout(function () {
+                    //这里发送一个心跳，后端收到后，返回一个心跳消息，
+                    //onmessage拿到返回的心跳就说明连接正常
+                    obj.action = "heart";
+                    Send();
+                    self.serverTimeoutObj = setTimeout(function () { //如果超过一定时间还没重置，说明后端主动断开了
+                        hubConnection.stop(); 
+                    }, self.timeout)
+                }, this.timeout)
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div>
+        <ul class="content">
+            <a href="javascript:void(0)" class="more" onclick="getmore()">查看更多消息</a>
+        </ul>
+        <input type="hidden" class="hidnum" />
+    </div>
+    <div style="clear:both;"></div>
+    <br />
+    <div>
+        <textarea id="msg" style="width:500px;" rows="5"></textarea>
+        <button type="button" id="send" onclick="sendinfo()">发送</button>
+        <span style="color:red;" class="error"></span>
+    </div>
+</body>
+
+</html>                       

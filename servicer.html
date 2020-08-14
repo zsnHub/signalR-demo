@@ -1,0 +1,329 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="renderer" content="webkit">
+    <meta http-equiv="Cache-Control" content="no-siteapp" />
+    <title>Servicer</title>
+    <style>
+        .list {
+            width: 100px;
+            float: left;
+            border-left: solid 1px #b8c0c7;
+            border-top: solid 1px #b8c0c7;
+        }
+
+        .user {
+            border-bottom: solid 1px #b8c0c7;
+            display: block;
+            text-align: center;
+            padding: 5px 0px;
+        }
+
+        .list .active {
+            color: blue;
+        }
+
+        .tab {
+            width: 500px;
+            float: left;
+        }
+
+            .tab .userchat {
+                display: none;
+            }
+
+            .tab .active {
+                display: block;
+            }
+
+        ul {
+            margin: 0px;
+            padding: 0px;
+        }
+
+        li {
+            list-style: none;
+            clear: both;
+        }
+
+            li > span {
+                margin: 5px 0px;
+                padding: 5px;
+                border: solid 1px #b8c0c7;
+                border-radius: 10px;
+                word-break: break-all;
+                word-wrap: break-word;
+            }
+
+            li > img {
+                border: solid 1px #b8c0c7;
+            }
+
+        .content {
+            height: 500px;
+            padding: 10px;
+            border: solid 1px #b8c0c7;
+            overflow: auto;
+        }
+
+        .left {
+            margin-right: 100px;
+            float: left;
+        }
+
+        .right {
+            margin-left: 100px;
+            float: right;
+        }
+
+        .notice {
+            border: 0;
+            font-size: 10px;
+            width: 100%;
+            text-align: center;
+            display: block;
+            color: #f55404;
+        }
+
+        .msg {
+            width: 80%;
+        }
+
+        .more {
+            font-size: 10px;
+            width: 100%;
+            text-align: center;
+            display: none;
+        }
+    </style>
+
+    <script src="js/signalr.js"></script>
+    <script src="js/jquery.min-1.8.2.js"></script>
+    <script>
+        var sid = localStorage.getItem("sid");
+        var hubConnection, obj = {}, lockReconnect = false;
+
+        Connect();
+
+        //连接
+        function Connect() {
+            var transportType = signalR.TransportType.WebSockets;
+//          var hubUrl = 'http://192.168.1.21:3030/chathub';
+            var hubUrl = 'http://192.168.5.42:28300/chathub';
+//          var hubUrl = 'http://192.168.5.42:28000/onlinechatapi/chathub';
+            var httpConnection = new signalR.HttpConnection(hubUrl, { transport: transportType });
+            hubConnection = new signalR.HubConnection(httpConnection);
+            hubConnection.on('ReceiveMessage', data => {
+                heartCheck.reset().start();
+                console.log(new Date() + "  receive  " + data);
+                data = JSON.parse(data);
+                if (data) {
+                    var ele = $("#" + data.code).find(".content")[0];
+                    var type = data.action;
+                    switch (type.toLowerCase()) {
+                        case "conn":
+                            console.log(new Date() + "    " + "建立连接");
+                            lockReconnect = false;
+                            obj.action = "serconn";
+                             obj.channel = 1;
+                            obj.usercode = '8000';
+                            Send();
+                            break;
+                        case "disconn":
+                            console.log(new Date() + "    " + "连接关闭");
+                            ReConnect();
+                            break;
+                        case "serconn":
+                        console.log(data.state)
+                            if (!data.state) {
+                            	console.log(JSON.stringify(data))
+                                $(".error").text(data.message);
+                            }
+                            else {
+                            	console.log(JSON.stringify(data))
+                                $(".error").text("");
+                                $(".list").empty();
+                                $(".tab").empty();
+                                localStorage.setItem("sid", data.usercode);
+                                sid = data.usercode;
+                            }
+                            break;
+                        case "sersend":
+                            if (data.state) {
+                                append(ele, "right", data.msg);
+                                $("#" + data.code).find(".msg").val("");
+                            }
+                            else {
+                                append(ele, "notice", data.msg);
+                            }
+                            break
+                        case "serreceive":
+
+                            if (!ele) {
+                                var first = '';
+                                if (!$(".user").length) {
+                                    first = 'active';
+                                }
+                                var userhtml = '<span class="user ' + first + '" code="' + data.usercode + '">' + data.name + '</span>';
+                                $(userhtml).appendTo(".list").click(function () {
+                                    $(".user").removeClass("active");
+                                    $(this).addClass("active");
+                                    $(".userchat").removeClass("active");
+                                    $("#" + $(this).attr("code")).addClass("active");
+                                    var conul = $("#" + $(this).attr("code")).find(".content");
+                                    $(conul).scrollTop($(conul)[0].scrollHeight);
+                                });
+                                var tabhtml = '<div class="userchat ' + first + '" id="' + data.usercode + '" >' +
+                                    '    <div>' +
+                                    '        <ul class="content"><a href="javascript:void(0)" class="more" onclick="getmore(\'' + data.usercode + '\')">查看更多消息</a></ul>' +
+                                    '        <input type="hidden" class="hidnum" />' +
+                                    '    </div>' +
+                                    '    <div style="clear:both;"></div>' +
+                                    '    <br />' +
+                                    '    <div>' +
+                                    '        <textarea class="msg" rows="5"></textarea><input type="hidden" class="hidSession" value="' + data.sessionid + '" /><input type="hidden" class="hidcid" value="' + data.usercode + '" />' +
+                                    '        <button type="button" class="send" onclick="sendinfo(\'' + data.usercode + '\')">发送</button>' +
+                                    '        <span style="color:red;" class="senderror"></span>' +
+                                    '    </div>' +
+                                    '</div>';
+                                $(".tab").append($(tabhtml));
+                                ele = $("#" + data.code).find(".content")[0];
+
+                                obj.action = "loglist";
+                                obj.code = data.code;
+                                Send();
+                            }
+                            if (!data.state) {
+                                append(ele, "notice", data.msg);
+                            }
+                            else {
+                                append(ele, "left", data.msg);
+                            }
+
+                            break; //收到消息
+                    }
+                }
+            });
+
+            hubConnection.onclose(data => {
+                console.log(new Date() + "  close  " + data);
+                ReConnect();
+            });
+
+            hubConnection.start().catch(err => {
+                console.log(new Date() + "  error  " + err);
+                ReConnect();
+            });
+        }
+
+        //重连
+        function ReConnect() {
+            if (!lockReconnect) {
+                lockReconnect = true;
+                //没连接上会一直重连，设置延迟避免请求过多
+                setTimeout(function () {
+                    console.log(new Date() + "    " + "重连中……");
+                    lockReconnect = false;
+                    Connect();
+                }, 2000);
+            }
+        }
+        //发送
+        function Send() {
+            if (hubConnection.connection.connectionState == 1) {
+                console.log(new Date() + "  send  " + JSON.stringify(obj));
+                hubConnection.invoke('ReceiveMessage', JSON.stringify(obj));
+            }
+            else {
+                ReConnect();
+            }
+        }
+
+        function sendinfo(ele) {
+            var msg = $("#" + ele).find(".msg").val();
+            if (msg) {
+                obj.action = "sersend";
+                obj.sessionid = $("#" + ele).find(".hidSession").val();
+                obj.message = msg;
+                Send();
+                $("#" + ele).find(".senderror").val("");
+            }
+            else {
+                $("#" + ele).find(".senderror").val("请输入内容");
+            }
+        }
+        function append(ele, cname, msg) {
+            var html = '<li><span class="' + cname + '">' + msg + '</span></li>';
+            $(html).appendTo(ele);
+            $(ele).scrollTop($(ele)[0].scrollHeight);
+        }
+        function insert(ele, cname, msg, nodown) {
+            var html = '<li><span class="' + cname + '">' + msg + '</span></li>';
+            var list = $(ele).find("li");
+            if (list.length) {
+                $(html).insertBefore(list[0]);
+            }
+            else {
+                $(html).appendTo(ele);
+            }
+            if (!nodown) {
+                $(ele).scrollTop($(ele)[0].scrollHeight);
+            }
+        }
+        //心跳检测
+        var heartCheck = {
+            timeout: 25000, //25秒
+            timeoutObj: null,
+            serverTimeoutObj: null,
+            reset: function () {
+                clearTimeout(this.timeoutObj);
+                clearTimeout(this.serverTimeoutObj);
+                return this;
+            },
+            start: function () {
+                var self = this;
+                this.timeoutObj = setTimeout(function () {
+                    //这里发送一个心跳，后端收到后，返回一个心跳消息，
+                    //onmessage拿到返回的心跳就说明连接正常
+                    obj.action = "heart";
+                    Send();
+                    self.serverTimeoutObj = setTimeout(function () { //如果超过一定时间还没重置，说明后端主动断开了
+                        hubConnection.stop();
+                    }, self.timeout)
+                }, this.timeout)
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div>
+        <span style="color:red;" class="error"></span>
+    </div>
+    <br />
+    <div class="list">
+        <!--<span class="user">张三</span>
+        <span class="user">张三</span>
+        <span class="user">张三</span>
+        <span class="user active">张三</span>
+        <span class="user">张三</span>-->
+    </div>
+    <div class="tab">
+        <!--<div class="userchat">
+            <div>
+                <ul class="content"></ul>
+            </div>
+            <div style="clear:both;"></div>
+            <br />
+            <div>
+                <textarea class="msg">发送内容</textarea><input type="hidden" class="hidcid" />
+                <button type="button" id="send" onclick="sendinfo()">发送</button>
+            </div>
+        </div>-->
+    </div>
+</body>
+
+</html>
